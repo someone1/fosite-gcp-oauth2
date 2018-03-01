@@ -27,6 +27,7 @@ import (
 	"github.com/someone1/gcp-jwt-go"
 )
 
+// A JWTStrategyer can manage JWT tokens
 type JWTStrategyer interface {
 	Generate(claims jwt.Claims, header fjwt.Mapper) (string, string, error)
 	Validate(token string) (string, error)
@@ -36,7 +37,7 @@ type JWTStrategyer interface {
 	GetSigningMethodLength() int
 }
 
-// GCPJWTStrategy is responsible for generating and validating JWT challenges
+// GCPJWTStrategy is responsible for generating and validating JWT challenges and implements JWTStrategyer
 type GCPJWTStrategy struct {
 	// Context should hold the IAMSignJWTConfig to be used for signing requests
 	Context context.Context
@@ -125,4 +126,8 @@ func assign(a, b map[string]interface{}) map[string]interface{} {
 		a[k] = w
 	}
 	return a
+}
+
+func typecheck() {
+	var _ JWTStrategyer = (*GCPJWTStrategy)(nil)
 }

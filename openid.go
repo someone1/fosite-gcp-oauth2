@@ -56,8 +56,8 @@ func (h GCPOpenIDStrategy) GenerateIDToken(_ context.Context, requester fosite.R
 	}
 
 	if requester.GetRequestForm().Get("grant_type") != "refresh_token" {
-		maxAge, err := strconv.ParseInt(requester.GetRequestForm().Get("max_age"), 10, 64)
-		if err != nil {
+		maxAge, serr := strconv.ParseInt(requester.GetRequestForm().Get("max_age"), 10, 64)
+		if serr != nil {
 			maxAge = 0
 		}
 
@@ -141,4 +141,8 @@ func (h GCPOpenIDStrategy) GenerateIDToken(_ context.Context, requester fosite.R
 
 	token, _, err = h.JWTStrategy.Generate(claims.ToMapClaims(), sess.IDTokenHeaders())
 	return token, err
+}
+
+func oidctypecheck() {
+	var _ openid.OpenIDConnectTokenStrategy = (*GCPOpenIDStrategy)(nil)
 }

@@ -29,7 +29,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-// GCPJWTOauth2Strategy is a JWT strategy leveraging GCP.
+// GCPJWTOauth2Strategy is a JWT strategy leveraging GCP's IAM API, it implements the forsite/handler/oauth2.CoreStrategy
 type GCPJWTOauth2Strategy struct {
 	JWTStrategy     JWTStrategyer
 	HMACSHAStrategy *oauth2.HMACSHAStrategy
@@ -181,4 +181,8 @@ func (h *GCPJWTOauth2Strategy) generate(tokenType fosite.TokenType, requester fo
 
 		return h.JWTStrategy.Generate(jwtClaims.ToMapClaims(), jwtSession.IDTokenHeaders())
 	}
+}
+
+func oauth2typecheck() {
+	var _ oauth2.CoreStrategy = (*GCPJWTOauth2Strategy)(nil)
 }
