@@ -29,7 +29,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-// GCPJWTOauth2Strategy is a JWT strategy leveraging GCP's IAM API, it implements the forsite/handler/oauth2.CoreStrategy
+// GCPJWTOauth2Strategy is a JWT strategy leveraging GCP's IAM API, it implements the fosite/handler/oauth2.CoreStrategy
 type GCPJWTOauth2Strategy struct {
 	JWTStrategy     JWTStrategyer
 	HMACSHAStrategy *oauth2.HMACSHAStrategy
