@@ -25,12 +25,14 @@ func init() {
 }
 
 // NewOAuth2GCPStrategy returns a strategy leveraging the GCP IAM APIs for making JWT Access Tokens
-func NewOAuth2GCPStrategy(ctx context.Context, strategy *oauth2.HMACSHAStrategy) *oauth2.DefaultJWTStrategy {
-	return &oauth2.DefaultJWTStrategy{
-		JWTStrategy: &GCPJWTStrategy{
-			Context: ctx,
+func NewOAuth2GCPStrategy(ctx context.Context, strategy *oauth2.HMACSHAStrategy) *GCPJWTOauth2Strategy {
+	return &GCPJWTOauth2Strategy{
+		&oauth2.DefaultJWTStrategy{
+			JWTStrategy: &GCPJWTStrategy{
+				Context: ctx,
+			},
+			HMACSHAStrategy: strategy,
 		},
-		HMACSHAStrategy: strategy,
 	}
 }
 
