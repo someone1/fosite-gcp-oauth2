@@ -18,12 +18,7 @@ import (
 	"github.com/ory/fosite/handler/oauth2"
 	"github.com/ory/fosite/handler/openid"
 	"github.com/ory/hydra/jwk"
-	"github.com/someone1/gcp-jwt-go"
 )
-
-func init() {
-	gcp_jwt.OverrideRS256()
-}
 
 var (
 	_ jwk.JWTStrategy = (*OIDCJWTStrategy)(nil)
@@ -31,43 +26,45 @@ var (
 
 type OIDCJWTStrategy struct {
 	openid.DefaultStrategy
+
+	corestrat jwk.JWTStrategy
 }
 
 type OAuth2JWTStrategy struct {
 	oauth2.DefaultJWTStrategy
+
+	corestrat jwk.JWTStrategy
 }
 
 // GetPublicKeyID returns a blank string as GCP manages/rotates this on its own
 // and auto injects it into the signed JWT header.
-func (j *OIDCJWTStrategy) GetPublicKeyID() (string, error) {
-	return "", nil
+func (j *OIDCJWTStrategy) GetPublicKeyID(ctx context.Context) (string, error) {
+	return j.corestrat.GetPublicKeyID(ctx)
 }
 
 // GetPublicKeyID returns a blank string as GCP manages/rotates this on its own
 // and auto injects it into the signed JWT header.
-func (j *OAuth2JWTStrategy) GetPublicKeyID() (string, error) {
-	return "", nil
+func (j *OAuth2JWTStrategy) GetPublicKeyID(ctx context.Context) (string, error) {
+	return j.corestrat.GetPublicKeyID(ctx)
 }
 
-// NewOAuth2GCPStrategy returns a strategy leveraging the GCP IAM APIs for making JWT Access Tokens
-func NewOAuth2GCPStrategy(ctx context.Context, strategy *oauth2.HMACSHAStrategy) *OAuth2JWTStrategy {
+// NewOAuth2GCPStrategy returns a strategy leveraging the provided jwk.JWTStrategy for making JWT Access Tokens
+func NewOAuth2GCPStrategy(ctx context.Context, corestrat jwk.JWTStrategy, strategy *oauth2.HMACSHAStrategy) *OAuth2JWTStrategy {
 	return &OAuth2JWTStrategy{
 		DefaultJWTStrategy: oauth2.DefaultJWTStrategy{
-			JWTStrategy: &GCPJWTStrategy{
-				Context: ctx,
-			},
+			JWTStrategy:     corestrat,
 			HMACSHAStrategy: strategy,
 		},
+		corestrat: corestrat,
 	}
 }
 
-// NewOpenIDConnectStrategy returns a strategy leveraging the GCP IAM APIs for making JWT Access Tokens
-func NewOpenIDConnectStrategy(ctx context.Context) *OIDCJWTStrategy {
+// NewOpenIDConnectStrategy returns a strategy leveraging the provided jwk.JWTStrategy for making JWT Access Tokens
+func NewOpenIDConnectStrategy(ctx context.Context, corestrat jwk.JWTStrategy) *OIDCJWTStrategy {
 	return &OIDCJWTStrategy{
 		DefaultStrategy: openid.DefaultStrategy{
-			JWTStrategy: &GCPJWTStrategy{
-				Context: ctx,
-			},
+			JWTStrategy: corestrat,
 		},
+		corestrat: corestrat,
 	}
 }

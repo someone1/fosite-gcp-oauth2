@@ -17,7 +17,7 @@ package oauth2
 
 import (
 	"context"
-	"crypto/sha256"
+	"crypto"
 	"strings"
 
 	"github.com/dgrijalva/jwt-go"
@@ -29,55 +29,131 @@ import (
 
 var (
 	// TypeCheck
-	_ fjwt.JWTStrategy = (*GCPJWTStrategy)(nil)
+	_ fjwt.JWTStrategy = (*gcpStrategy)(nil)
 )
 
-// GCPJWTStrategy is responsible for generating and validating JWT challenges and implements JWTStrategy
-type GCPJWTStrategy struct {
-	// Context should hold the IAMSignJWTConfig to be used for signing requests
-	Context context.Context
+// IAMStrategy is responsible for generating and validating JWT challenges and implements JWTStrategy using the IAM API.
+type IAMStrategy struct {
+	// SigningMethod should be a signing method from the gcpjwt package (IAM or KMS only!)
+	signingMethod *gcpjwt.SigningMethodIAM
+	// Context should be the correct key value to pass into a Sign call for the assigned SigningMethod
+	config *gcpjwt.IAMConfig
+
+	*gcpStrategy
+}
+
+func (i *IAMStrategy) GetPublicKeyID(_ context.Context) (string, error) {
+	return i.config.KeyID(), nil
+}
+
+// KMSStrategy is responsible for generating and validating JWT challenges and implements JWTStrategy using Cloud KMS.
+type KMSStrategy struct {
+	// SigningMethod should be a signing method from the gcpjwt package (IAM or KMS only!)
+	signingMethod *gcpjwt.SigningMethodKMS
+	// Context should be the correct key value to pass into a Sign call for the assigned SigningMethod
+	config *gcpjwt.KMSConfig
+
+	*gcpStrategy
+}
+
+func (k *KMSStrategy) GetPublicKeyID(_ context.Context) (string, error) {
+	return k.config.KeyID(), nil
+}
+
+// NewIAMStrategy will return a fosite/token/jwt.JWTStrategy compatible object configured for the IAM signing method provided
+func NewIAMStrategy(ctx context.Context, sm *gcpjwt.SigningMethodIAM, config *gcpjwt.IAMConfig) *IAMStrategy {
+	sm.Override()
+
+	return &IAMStrategy{
+		signingMethod: sm,
+		config:        config,
+		gcpStrategy: &gcpStrategy{
+			signingMethod: sm,
+			keyFunc: func(ctx context.Context) jwt.Keyfunc {
+				return gcpjwt.IAMVerfiyKeyfunc(ctx, config)
+			},
+			signKey: func(ctx context.Context) interface{} {
+				return gcpjwt.NewIAMContext(ctx, config)
+			},
+			hasher: crypto.SHA256,
+		},
+	}
+}
+
+// NewKMSStrategy will return a fosite/token/jwt.JWTStrategy compatible object configured for the Cloud KMS signing method provided
+func NewKMSStrategy(ctx context.Context, sm *gcpjwt.SigningMethodKMS, config *gcpjwt.KMSConfig) (*KMSStrategy, error) {
+	sm.Override()
+
+	keyFunc, err := gcpjwt.KMSVerfiyKeyfunc(ctx, config)
+	if err != nil {
+		return nil, err
+	}
+
+	return &KMSStrategy{
+		signingMethod: sm,
+		config:        config,
+		gcpStrategy: &gcpStrategy{
+			signingMethod: sm,
+			keyFunc: func(ctx context.Context) jwt.Keyfunc {
+				return keyFunc
+			},
+			signKey: func(ctx context.Context) interface{} {
+				return gcpjwt.NewKMSContext(ctx, config)
+			},
+			hasher: sm.Hash(),
+		},
+	}, nil
+}
+
+type gcpStrategy struct {
+	signingMethod jwt.SigningMethod
+	keyFunc       func(ctx context.Context) jwt.Keyfunc
+	signKey       func(ctx context.Context) interface{}
+	hasher        crypto.Hash
 }
 
 // Generate generates a new authorize code or returns an error. set secret
-func (j *GCPJWTStrategy) Generate(claims jwt.Claims, header fjwt.Mapper) (string, string, error) {
+func (g *gcpStrategy) Generate(ctx context.Context, claims jwt.Claims, header fjwt.Mapper) (string, string, error) {
 	if header == nil || claims == nil {
 		return "", "", errors.New("either claims or header is nil")
 	}
 
-	token := jwt.NewWithClaims(gcp_jwt.SigningMethodGCPJWT, claims)
+	token := jwt.NewWithClaims(g.signingMethod, claims)
 	token.Header = assign(token.Header, header.ToMap())
 
-	var sig, sstr, tokenStr string
+	var sig, sstr string
 	var err error
 	if sstr, err = token.SigningString(); err != nil {
 		return "", "", errors.WithStack(err)
 	}
 
-	if tokenStr, err = token.Method.Sign(sstr, j.Context); err != nil {
+	if sig, err = token.Method.Sign(sstr, g.signKey(ctx)); err != nil {
 		return "", "", errors.WithStack(err)
 	}
 
-	parts := strings.Split(tokenStr, ".")
-	sig = parts[2]
+	// Special Case
+	if g.signingMethod == gcpjwt.SigningMethodIAMJWT {
+		parts := strings.Split(sig, ".")
+		sstr = strings.Join(parts[0:2], ".")
+		sig = parts[2]
+	}
 
-	return tokenStr, sig, nil
+	return strings.Join([]string{sstr, sig}, "."), sig, nil
 }
 
 // Validate validates a token and returns its signature or an error if the token is not valid.
-func (j *GCPJWTStrategy) Validate(token string) (string, error) {
-	if _, err := j.Decode(token); err != nil {
+func (g *gcpStrategy) Validate(ctx context.Context, token string) (string, error) {
+	if _, err := g.Decode(ctx, token); err != nil {
 		return "", errors.WithStack(err)
 	}
 
-	return j.GetSignature(token)
+	return g.GetSignature(ctx, token)
 }
 
 // Decode will decode a JWT token
-func (j *GCPJWTStrategy) Decode(token string) (*jwt.Token, error) {
+func (g *gcpStrategy) Decode(ctx context.Context, token string) (*jwt.Token, error) {
 	// Parse the token.
-	parsedToken, err := jwt.Parse(token, func(t *jwt.Token) (interface{}, error) {
-		return j.Context, nil
-	})
+	parsedToken, err := jwt.Parse(token, g.keyFunc(ctx))
 
 	if err != nil {
 		return nil, errors.WithStack(err)
@@ -89,7 +165,7 @@ func (j *GCPJWTStrategy) Decode(token string) (*jwt.Token, error) {
 }
 
 // GetSignature will return the signature of a token
-func (j *GCPJWTStrategy) GetSignature(token string) (string, error) {
+func (g *gcpStrategy) GetSignature(_ context.Context, token string) (string, error) {
 	split := strings.Split(token, ".")
 	if len(split) != 3 {
 		return "", errors.New("Header, body and signature must all be set")
@@ -98,19 +174,18 @@ func (j *GCPJWTStrategy) GetSignature(token string) (string, error) {
 }
 
 // Hash will return a given hash based on the byte input or an error upon fail
-func (j *GCPJWTStrategy) Hash(in []byte) ([]byte, error) {
-	// GCP Signing uses SHA256
-	hash := sha256.New()
+func (g *gcpStrategy) Hash(_ context.Context, in []byte) ([]byte, error) {
+	hash := g.hasher.New()
 	_, err := hash.Write(in)
 	if err != nil {
 		return []byte{}, errors.WithStack(err)
 	}
-	return hash.Sum([]byte{}), nil
+	return hash.Sum(nil), nil
 }
 
 // GetSigningMethodLength will return the length of the signing method
-func (j *GCPJWTStrategy) GetSigningMethodLength() int {
-	return sha256.Size
+func (g *gcpStrategy) GetSigningMethodLength() int {
+	return g.hasher.Size()
 }
 
 func assign(a, b map[string]interface{}) map[string]interface{} {
