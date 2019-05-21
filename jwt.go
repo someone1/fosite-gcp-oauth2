@@ -24,7 +24,7 @@ import (
 	"github.com/ory/fosite"
 	fjwt "github.com/ory/fosite/token/jwt"
 	"github.com/pkg/errors"
-	"github.com/someone1/gcp-jwt-go"
+	"github.com/someone1/gcp-jwt-go/v2"
 )
 
 var (
